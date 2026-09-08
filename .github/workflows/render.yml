@@ -1,0 +1,116 @@
+name: Рендер на дневния клип
+
+on:
+  # така го вика Make
+  repository_dispatch:
+    types: [render-clip]
+  # така можеш да го пуснеш и на ръка от GitHub
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Име на изданието (release tag ще е clip-<run_id>)"
+        required: false
+        default: "manual"
+      title1:
+        description: "Заглавие 1"
+        required: true
+      image1:
+        description: "Снимка 1 (URL)"
+        required: true
+      title2:
+        description: "Заглавие 2"
+        required: true
+      image2:
+        description: "Снимка 2 (URL)"
+        required: true
+      title3:
+        description: "Заглавие 3"
+        required: true
+      image3:
+        description: "Снимка 3 (URL)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: render-clip
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Събери входните данни
+        id: input
+        env:
+          PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+          INPUTS: ${{ toJSON(github.event.inputs) }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, os, re, datetime
+          src = json.loads(os.environ.get("PAYLOAD") or "null") or \
+                json.loads(os.environ.get("INPUTS") or "null") or {}
+          run_id = str(src.get("run_id") or "").strip()
+          if not run_id:
+              run_id = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+          run_id = re.sub(r"[^0-9A-Za-z._-]", "-", run_id)[:60]
+          print(f"NV_RUN_ID={run_id}")
+          data = {
+              "titles": [src.get(f"title{i}", "") for i in (1, 2, 3)],
+              "images": [src.get(f"image{i}", "") for i in (1, 2, 3)],
+          }
+          with open("input.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False)
+          PY
+          echo "--- input.json:"
+          cat input.json
+
+      - name: Шрифт Roboto
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-roboto fonts-dejavu-core >/dev/null
+          fc-cache -f >/dev/null
+
+      - name: Python пакети
+        run: pip install --quiet --disable-pip-version-check "edge-tts>=7.0"
+
+      - name: Рендер
+        run: python3 render.py --json input.json
+
+      - name: Издание с готовото видео
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="clip-${NV_RUN_ID}"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" out/clip.mp4 \
+            --title "$TAG" \
+            --notes "$(cat out/clip.json)"
+          echo "Готово: $(gh release view "$TAG" --json assets --jq '.assets[0].url')"
+
+      - name: Разчисти старите издания
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq '.[] | select(.createdAt < "'"$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)"'") | .tagName' \
+          | while read -r t; do
+              [ -n "$t" ] && gh release delete "$t" --yes --cleanup-tag || true
+            done
+
+      - name: Запази клипа и при проблем
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clip-${{ env.NV_RUN_ID }}
+          path: |
+            out/
+            work/subs.ass
+          retention-days: 7
+          if-no-files-found: ignore
