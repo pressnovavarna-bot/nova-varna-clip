@@ -207,10 +207,35 @@ async def _synth(text: str, dest: Path):
     return words
 
 
+def estimate_words(text: str, total: float):
+    """
+    Резервен вариант: ако синтезаторът не върне тайминги за думите,
+    ги разпределяме по дължината им в рамките на записа.
+    """
+    ws = [w for w in text.split() if w]
+    if not ws:
+        return []
+    weights = [len(w) + 1.3 for w in ws]
+    s = sum(weights)
+    lead = 0.04 * total
+    span = max(total - lead - 0.08 * total, 0.4)
+    out = []
+    t = lead
+    for w, k in zip(ws, weights):
+        d = span * k / s
+        out.append(Word(w, t, t + d * 0.94))
+        t += d
+    return out
+
+
 def synth(text: str, dest: Path) -> Speech:
     words = asyncio.run(_synth(text, dest))
     dur = probe_duration(dest)
-    log(f"глас: {dur:.2f}s, {len(words)} думи — {text[:60]}")
+    source = "от синтезатора"
+    if not words:
+        words = estimate_words(text, dur)
+        source = "изчислени (синтезаторът не върна тайминги)"
+    log(f"глас: {dur:.2f}s, {len(words)} думи {source} — {text[:60]}")
     return Speech(dest, dur, words)
 
 
@@ -234,7 +259,16 @@ def build_ass(blocks, font_path: str, dest: Path):
     blocks: списък от (offset_в_клипа, Speech)
     Прави ASS, в който активната дума е синя, а редът е до SUB_MAX_WORDS думи.
     """
-    font_name = Path(font_path).stem
+    low = font_path.lower()
+    font_name = next(
+        (fam for key, fam in (
+            ("roboto", "Roboto"),
+            ("dejavu", "DejaVu Sans"),
+            ("liberation", "Liberation Sans"),
+            ("noto", "Noto Sans"),
+        ) if key in low),
+        Path(font_path).stem,
+    )
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
