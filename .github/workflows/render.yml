@@ -70,11 +70,13 @@ jobs:
           echo "--- input.json:"
           cat input.json
 
-      - name: Шрифт Roboto
+      - name: ffmpeg и шрифтове
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-roboto fonts-dejavu-core >/dev/null
+          sudo apt-get install -y -qq ffmpeg fonts-roboto fonts-dejavu-core >/dev/null
           fc-cache -f >/dev/null
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
 
       - name: Python пакети
         run: pip install --quiet --disable-pip-version-check "edge-tts>=7.0"
