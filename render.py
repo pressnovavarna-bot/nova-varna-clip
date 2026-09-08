@@ -36,6 +36,12 @@ FPS = 30
 BG_COLOR = "0x0B1424"          # тъмносиньото на кадъра
 DIM_COLOR = "0x091222"         # слоят, който затъмнява снимката
 DIM_ALPHA = 0.74
+
+# анимация на фона зад снимката
+BG_ZOOM = 0.12                 # колко се приближава за цялата сцена
+BG_DRIFT_X = 90                # плъзгане настрани, пиксели
+BG_DRIFT_Y = 60                # плъзгане нагоре-надолу
+BG_BLUR = 14                   # размиване на фона (0 = без)
 XFADE = 0.5                    # преход между сцените, секунди
 
 LEAD_IN = 0.40                 # тишина преди гласа в новинарските сцени
@@ -343,10 +349,18 @@ def render_news_scene(photo: Path, logo: Path, banner, duration: float, dest: Pa
     if banner:
         inputs += ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(banner)]
 
+    frames = max(int(duration * FPS), 2)
+    # бавно приближаване и плъзгане настрани, за да не стои фонът неподвижен
+    zoom = f"1+{BG_ZOOM:.3f}*on/{frames}"
+    drift_x = f"{BG_DRIFT_X}*sin(2*PI*on/{frames})"
+    drift_y = f"{BG_DRIFT_Y}*sin(2*PI*on/{frames}+1.2)"
     fc = [
-        # фон: снимката, увеличена двойно, изрязана до кадъра, потъмнена
+        # фон: снимката, увеличена, размита и потъмнена, с лека анимация
         f"[0:v]scale={W*2}:{H*2}:force_original_aspect_ratio=increase,"
-        f"crop={W*2}:{H*2},scale={W}:{H},eq=brightness=-0.25:saturation=0.80,"
+        f"crop={W*2}:{H*2},"
+        f"zoompan=z='{zoom}':d=1:s={W}x{H}:fps={FPS}:"
+        f"x='iw/2-(iw/zoom/2)+{drift_x}':y='ih/2-(ih/zoom/2)+{drift_y}',"
+        f"gblur=sigma={BG_BLUR},eq=brightness=-0.25:saturation=0.80,"
         f"setsar=1[bg]",
         # полупрозрачният слой, който в json2video никога не се получаваше
         f"color=c={DIM_COLOR}:s={W}x{H}:d={duration:.3f}:r={FPS},"
