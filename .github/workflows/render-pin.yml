@@ -1,0 +1,54 @@
+name: render-pin
+
+on:
+  repository_dispatch:
+    types: [render-pin]
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          pip install --quiet playwright requests
+          playwright install --with-deps chromium
+
+      - name: Render pin
+        env:
+          TITLE:  ${{ github.event.client_payload.title }}
+          IMAGE:  ${{ github.event.client_payload.image }}
+          KICKER: ${{ github.event.client_payload.kicker }}
+          BRAND:  ${{ github.event.client_payload.brand }}
+          ACCENT: ${{ github.event.client_payload.accent }}
+          OUT: pin.png
+        run: python pin/render.py
+
+      - name: Check result
+        run: |
+          test -s pin.png || { echo "pin.png missing or empty"; exit 1; }
+          python - <<'PY'
+          from PIL import Image
+          w, h = Image.open("pin.png").size
+          print(f"pin.png = {w}x{h}")
+          assert (w, h) == (1000, 1500), "wrong size"
+          PY
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.client_payload.run_id }}
+        run: |
+          gh release create "pin-$RUN_ID" pin.png \
+            --title "pin-$RUN_ID" \
+            --notes "Pinterest pin"
