@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --accent: {{ACCENT}};
+    --ink:    {{INK}};
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box}
+
+  html,body{
+    width:1000px;height:1500px;
+    background:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  .pin{
+    width:1000px;height:1500px;
+    display:flex;flex-direction:column;
+    background:var(--ink);
+    overflow:hidden;
+  }
+
+  .photo{
+    position:relative;
+    height:900px;
+    flex:0 0 900px;
+    overflow:hidden;
+    background:#111;
+  }
+  .photo img{
+    width:100%;height:100%;
+    object-fit:cover;
+    object-position:center 42%;
+    display:block;
+  }
+  .photo::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(to bottom,
+      rgba(0,0,0,.18) 0%,
+      rgba(0,0,0,0) 30%,
+      rgba(0,0,0,0) 72%,
+      rgba(0,0,0,.35) 100%);
+  }
+
+  .kicker{
+    position:absolute;left:0;top:56px;
+    background:var(--accent);
+    color:#fff;
+    font-family:"Liberation Sans","DejaVu Sans",Arial,sans-serif;
+    font-weight:700;
+    font-size:26px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    padding:16px 30px 15px 56px;
+    border-radius:0 6px 6px 0;
+  }
+
+  .caption{
+    flex:0 0 600px;
+    height:600px;
+    display:flex;flex-direction:column;
+    justify-content:center;
+    padding:44px 56px 110px;
+    position:relative;
+    overflow:hidden;
+  }
+
+  .rule{
+    width:96px;height:8px;
+    background:var(--accent);
+    border-radius:4px;
+    margin-bottom:34px;
+  }
+
+  .title{
+    font-family:{{TITLEFONT}};
+    font-weight:700;
+    font-size:78px;
+    line-height:1.12;
+    color:#fff;
+    letter-spacing:-.005em;
+    display:-webkit-box;
+    -webkit-line-clamp:4;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+  }
+
+  .brand{
+    position:absolute;
+    left:56px;right:56px;bottom:44px;
+    display:flex;align-items:center;gap:16px;
+    font-family:"Liberation Sans","DejaVu Sans",Arial,sans-serif;
+    font-weight:700;
+    font-size:26px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:rgba(255,255,255,.72);
+  }
+  .brand .dot{
+    width:12px;height:12px;border-radius:50%;
+    background:var(--accent);flex:0 0 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="pin">
+    <div class="photo">
+      <img src="{{IMAGE}}" alt="">
+      <div class="kicker">{{KICKER}}</div>
+    </div>
+    <div class="caption">
+      <div class="rule"></div>
+      <h1 class="title" id="title">{{TITLE}}</h1>
+      <div class="brand"><span class="dot"></span><span>{{BRAND}}</span></div>
+    </div>
+  </div>
+</body>
+</html>
