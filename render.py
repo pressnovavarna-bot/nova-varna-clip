@@ -96,6 +96,9 @@ OUTRO_LOGO_W = 840
 OUTRO_LOGO_CY = 800
 OUTRO_SPINS = 1.0
 OUTRO_SPIN_TIME = 2.4
+OUTRO_BG_ZOOM = 0.10           # приближаване на мозайката
+OUTRO_BG_BLUR = 16             # размиване на мозайката
+OUTRO_DIM_ALPHA = 0.62         # колко я потъмнява тъмносиньото
 
 SUBTITLES = os.environ.get("NV_SUBTITLES", "0") == "1"
 SUB_Y = 1520
@@ -391,6 +394,56 @@ def rise_expr(y_final: int, start: float, rise: float) -> str:
     return f"'{H}-{travel}*(1-pow(1-{p},3))'"
 
 
+def make_outro_mosaic(photos, dest: Path) -> Path:
+    """Мозайка от снимките на новините — фон за финалния кадър."""
+    from PIL import Image
+
+    cols, rows = 2, 3
+    cw, ch = 700, 830                      # по-голямо от кадъра, за да има накъде да мърда
+    canvas = Image.new("RGB", (cols * cw, rows * ch), (11, 20, 36))
+    pool = list(photos)
+    while len(pool) < cols * rows:
+        pool += list(photos)
+    for idx in range(cols * rows):
+        try:
+            im = Image.open(pool[idx]).convert("RGB")
+        except Exception:
+            continue
+        s = max(cw / im.width, ch / im.height)
+        im = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))),
+                       Image.LANCZOS)
+        left = (im.width - cw) // 2
+        top = (im.height - ch) // 2
+        canvas.paste(im.crop((left, top, left + cw, top + ch)),
+                     ((idx % cols) * cw, (idx // cols) * ch))
+    canvas.save(dest, quality=90)
+    log(f"мозайка за финала: {canvas.size} -> {dest}")
+    return dest
+
+
+def make_glow(dest: Path, size: int = 1200,
+              color=(60, 150, 225), peak: int = 150) -> Path:
+    """Мек кръгъл ореол в синьото на медията."""
+    from PIL import Image
+
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    px = im.load()
+    r = size / 2
+    for y in range(size):
+        dy = (y - r) / r
+        for x in range(size):
+            dx = (x - r) / r
+            d = (dx * dx + dy * dy) ** 0.5
+            if d >= 1:
+                continue
+            a = int(peak * (1 - d) ** 2.2)
+            if a:
+                px[x, y] = (color[0], color[1], color[2], a)
+    im.save(dest)
+    log(f"ореол: {size}x{size} -> {dest}")
+    return dest
+
+
 def png_size(path: Path):
     from PIL import Image
     with Image.open(path) as im:
@@ -443,24 +496,42 @@ def render_news_scene(photo: Path, panel: Path, card: Path, banner,
     return dest
 
 
-def render_outro_scene(logo: Path, banner: Path, duration: float, dest: Path):
+def render_outro_scene(logo: Path, banner: Path, mosaic: Path, glow: Path,
+                       duration: float, dest: Path):
     box = int(OUTRO_LOGO_W * 1.15) // 2 * 2
     p = f"min(t/{OUTRO_SPIN_TIME:.2f},1)"
     angle = f"{2 * 3.14159265 * OUTRO_SPINS:.5f}*(1-pow(1-{p},3))"
+    frames = max(int(duration * FPS), 2)
+    gw = png_size(glow)[0]
+
+    inputs = []
+    for src in (logo, banner, mosaic, glow):
+        inputs += ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(src)]
+
     fc = [
-        f"color=c={BG_COLOR}:s={W}x{H}:d={duration:.3f}:r={FPS},setsar=1[bg]",
+        # мозайката бавно се приближава, размита и потъмнена
+        f"[2:v]scale={int(W * 1.25)}:{int(H * 1.25)}:force_original_aspect_ratio=increase,"
+        f"crop={int(W * 1.25)}:{int(H * 1.25)},"
+        f"zoompan=z='1+{OUTRO_BG_ZOOM:.3f}*on/{frames}':d=1:s={W}x{H}:fps={FPS}:"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)',"
+        f"gblur=sigma={OUTRO_BG_BLUR},eq=brightness=-0.30:saturation=0.55,"
+        f"setsar=1[mos]",
+        f"color=c={BG_COLOR}:s={W}x{H}:d={duration:.3f}:r={FPS},"
+        f"format=rgba,colorchannelmixer=aa={OUTRO_DIM_ALPHA}[dim]",
+        "[mos][dim]overlay=0:0[bg]",
+        # мек ореол, който диша
+        f"[3:v]format=rgba,fade=t=in:st=0.2:d=1.4:alpha=1[glowa]",
+        f"[bg][glowa]overlay=x={(W - gw) // 2}:y={OUTRO_LOGO_CY - gw // 2}[v0]",
         f"[0:v]scale={OUTRO_LOGO_W}:-1,setsar=1,"
         f"pad={box}:{box}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
         f"format=rgba,rotate=a='{angle}':c=black@0:ow={box}:oh={box}[logo]",
-        f"[bg][logo]overlay=x={(W - box) // 2}:y={OUTRO_LOGO_CY - box // 2}[v1]",
+        f"[v0][logo]overlay=x={(W - box) // 2}:y={OUTRO_LOGO_CY - box // 2}[v1]",
         f"[1:v]scale={BANNER_W}:-1,setsar=1[ban]",
         f"[v1][ban]overlay=x={BANNER_X}:"
         f"y={rise_expr(BANNER_Y, BANNER_SITE_START, BANNER_RISE)}[v2]",
         f"[v2]fps={FPS},format=yuv420p[out]",
     ]
-    run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-         "-loop", "1", "-t", f"{duration:.3f}", "-i", str(logo),
-         "-loop", "1", "-t", f"{duration:.3f}", "-i", str(banner),
+    run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs,
          "-filter_complex", ";".join(fc), "-map", "[out]",
          "-c:v", "libx264", "-preset", "medium", "-crf", "20",
          "-t", f"{duration:.3f}", str(dest)])
@@ -573,8 +644,11 @@ def main():
         scenes.append(render_news_scene(
             photo, panel, card, banner_ad if i == ad_index else None,
             dur, WORK / f"scene{i + 1}.mp4"))
+    mosaic = make_outro_mosaic(photos, WORK / "mosaic.jpg")
+    glow = make_glow(WORK / "glow.png")
     scenes.append(render_outro_scene(
-        logo, banner_site, OUTRO_DURATION, WORK / "scene_outro.mp4"))
+        logo, banner_site, mosaic, glow, OUTRO_DURATION,
+        WORK / "scene_outro.mp4"))
 
     starts, total = stitch_video(scenes, durations, WORK / "video.mp4")
     log(f"сцени: {['%.2f' % s for s in starts]}, общо {total:.2f}s")
