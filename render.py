@@ -79,7 +79,18 @@ CARD_FG = (15, 18, 24, 255)
 CARD_FONT_SIZE = 46
 CARD_LINE_GAP = 12
 
-LOGO_PANEL_BG = (43, 124, 192, 232)   # синьото на медията
+def _rgba(env_name, default):
+    raw = os.environ.get(env_name, "")
+    try:
+        parts = [int(x) for x in raw.split(",")]
+        if len(parts) == 4:
+            return tuple(parts)
+    except ValueError:
+        pass
+    return default
+
+
+LOGO_PANEL_BG = _rgba("NV_LOGO_PANEL_BG", (43, 124, 192, 232))
 LOGO_PANEL_PAD = 18
 LOGO_IN_PANEL_W = 700
 PANEL_GAP = 14                 # разстояние между логото и заглавието
@@ -615,7 +626,7 @@ def main():
     log(f"шрифт: {font}")
 
     logo = fetch(LOGO_URL, WORK / "logo.png")
-    banner_ad = fetch(BANNER_AD_URL, WORK / "banner_ad.png")
+    banner_ad = fetch(BANNER_AD_URL, WORK / "banner_ad.png") if BANNER_AD_URL else None
     banner_site = fetch(BANNER_SITE_URL, WORK / "banner_site.png")
     photos = [
         fetch(u, WORK / f"photo{i + 1}{Path(u).suffix or '.jpg'}")
@@ -638,7 +649,7 @@ def main():
     durations = [LEAD_IN + sp.duration + TAIL for sp in speeches]
     durations.append(OUTRO_DURATION)
 
-    ad_index = AD_SCENE if 0 <= AD_SCENE < len(photos) else 0
+    ad_index = AD_SCENE if (banner_ad and 0 <= AD_SCENE < len(photos)) else -1
     scenes = []
     for i, (photo, card, dur) in enumerate(zip(photos, cards, durations)):
         scenes.append(render_news_scene(
