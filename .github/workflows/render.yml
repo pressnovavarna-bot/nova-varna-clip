@@ -80,6 +80,20 @@ jobs:
               titles = [src.get(f"title{i}", "") for i in range(1, 9)]
               images = [src.get(f"image{i}", "") for i in range(1, 9)]
           data = {"titles": titles, "images": images}
+          # брандиране — подава се по желание от Make
+          brand = {
+              "logo": "NV_LOGO_URL",
+              "banner_ad": "NV_BANNER_AD_URL",
+              "banner_site": "NV_BANNER_SITE_URL",
+              "outro_text": "NV_OUTRO_TEXT",
+              "panel_bg": "NV_LOGO_PANEL_BG",
+              "ad_scene": "NV_AD_SCENE",
+              "voice": "NV_VOICE",
+          }
+          for key, env_name in brand.items():
+              if key in src and src[key] is not None:
+                  value = str(src[key]).replace("\n", " ").strip()
+                  print(f"{env_name}={value}")
           with open("input.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False)
           PY
