@@ -29,6 +29,18 @@ on:
       image3:
         description: "Снимка 3 (URL)"
         required: true
+      title4:
+        description: "Заглавие 4"
+        required: false
+      image4:
+        description: "Снимка 4 (URL)"
+        required: false
+      title5:
+        description: "Заглавие 5"
+        required: false
+      image5:
+        description: "Снимка 5 (URL)"
+        required: false
 
 permissions:
   contents: write
@@ -61,8 +73,8 @@ jobs:
           run_id = re.sub(r"[^0-9A-Za-z._-]", "-", run_id)[:60]
           print(f"NV_RUN_ID={run_id}")
           data = {
-              "titles": [src.get(f"title{i}", "") for i in (1, 2, 3)],
-              "images": [src.get(f"image{i}", "") for i in (1, 2, 3)],
+              "titles": [src.get(f"title{i}", "") for i in range(1, 9)],
+              "images": [src.get(f"image{i}", "") for i in range(1, 9)],
           }
           with open("input.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False)
@@ -79,7 +91,7 @@ jobs:
           ffprobe -version | head -1
 
       - name: Python пакети
-        run: pip install --quiet --disable-pip-version-check "edge-tts>=7.0"
+        run: pip install --quiet --disable-pip-version-check "edge-tts>=7.0" "pillow>=10"
 
       - name: Рендер
         run: python3 render.py --json input.json
