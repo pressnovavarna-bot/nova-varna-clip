@@ -507,16 +507,18 @@ def render_news_scene(photo: Path, panel: Path, card: Path, banner,
     return dest
 
 
-def render_outro_scene(logo: Path, banner: Path, mosaic: Path, glow: Path,
+def render_outro_scene(panel: Path, banner: Path, mosaic: Path, glow: Path,
                        duration: float, dest: Path):
-    box = int(OUTRO_LOGO_W * 1.15) // 2 * 2
+    pw, ph = png_size(panel)
+    scaled_h = max(2, round(ph * OUTRO_LOGO_W / pw))
+    box = int((OUTRO_LOGO_W ** 2 + scaled_h ** 2) ** 0.5) // 2 * 2 + 8
     p = f"min(t/{OUTRO_SPIN_TIME:.2f},1)"
     angle = f"{2 * 3.14159265 * OUTRO_SPINS:.5f}*(1-pow(1-{p},3))"
     frames = max(int(duration * FPS), 2)
     gw = png_size(glow)[0]
 
     inputs = []
-    for src in (logo, banner, mosaic, glow):
+    for src in (panel, banner, mosaic, glow):
         inputs += ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(src)]
 
     fc = [
@@ -533,9 +535,9 @@ def render_outro_scene(logo: Path, banner: Path, mosaic: Path, glow: Path,
         # мек ореол, който диша
         f"[3:v]format=rgba,fade=t=in:st=0.2:d=1.4:alpha=1[glowa]",
         f"[bg][glowa]overlay=x={(W - gw) // 2}:y={OUTRO_LOGO_CY - gw // 2}[v0]",
-        f"[0:v]scale={OUTRO_LOGO_W}:-1,setsar=1,"
+        f"[0:v]scale={OUTRO_LOGO_W}:-1,setsar=1,format=rgba,"
         f"pad={box}:{box}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
-        f"format=rgba,rotate=a='{angle}':c=black@0:ow={box}:oh={box}[logo]",
+        f"rotate=a='{angle}':c=black@0:ow={box}:oh={box}[logo]",
         f"[v0][logo]overlay=x={(W - box) // 2}:y={OUTRO_LOGO_CY - box // 2}[v1]",
         f"[1:v]scale={BANNER_W}:-1,setsar=1[ban]",
         f"[v1][ban]overlay=x={BANNER_X}:"
@@ -658,7 +660,7 @@ def main():
     mosaic = make_outro_mosaic(photos, WORK / "mosaic.jpg")
     glow = make_glow(WORK / "glow.png")
     scenes.append(render_outro_scene(
-        logo, banner_site, mosaic, glow, OUTRO_DURATION,
+        panel, banner_site, mosaic, glow, OUTRO_DURATION,
         WORK / "scene_outro.mp4"))
 
     starts, total = stitch_video(scenes, durations, WORK / "video.mp4")
