@@ -72,10 +72,14 @@ jobs:
               run_id = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
           run_id = re.sub(r"[^0-9A-Za-z._-]", "-", run_id)[:60]
           print(f"NV_RUN_ID={run_id}")
-          data = {
-              "titles": [src.get(f"title{i}", "") for i in range(1, 9)],
-              "images": [src.get(f"image{i}", "") for i in range(1, 9)],
-          }
+          items = src.get("items")
+          if isinstance(items, list) and items:
+              titles = [str(it.get("title", "")) for it in items if isinstance(it, dict)]
+              images = [str(it.get("image", "")) for it in items if isinstance(it, dict)]
+          else:
+              titles = [src.get(f"title{i}", "") for i in range(1, 9)]
+              images = [src.get(f"image{i}", "") for i in range(1, 9)]
+          data = {"titles": titles, "images": images}
           with open("input.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False)
           PY
