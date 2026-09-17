@@ -17,18 +17,21 @@ on:
       image1:
         description: "Снимка 1 (URL)"
         required: true
+      summary1:
+        description: "Обобщение 1 (по желание, 3-4 изречения)"
+        required: false
       title2:
         description: "Заглавие 2"
-        required: true
+        required: false
       image2:
         description: "Снимка 2 (URL)"
-        required: true
+        required: false
       title3:
         description: "Заглавие 3"
-        required: true
+        required: false
       image3:
         description: "Снимка 3 (URL)"
-        required: true
+        required: false
       title4:
         description: "Заглавие 4"
         required: false
@@ -74,12 +77,15 @@ jobs:
           print(f"NV_RUN_ID={run_id}")
           items = src.get("items")
           if isinstance(items, list) and items:
-              titles = [str(it.get("title", "")) for it in items if isinstance(it, dict)]
-              images = [str(it.get("image", "")) for it in items if isinstance(it, dict)]
+              rows = [it for it in items if isinstance(it, dict)]
+              titles = [str(it.get("title", "")) for it in rows]
+              images = [str(it.get("image", "")) for it in rows]
+              summaries = [str(it.get("summary", "") or "") for it in rows]
           else:
               titles = [src.get(f"title{i}", "") for i in range(1, 9)]
               images = [src.get(f"image{i}", "") for i in range(1, 9)]
-          data = {"titles": titles, "images": images}
+              summaries = [src.get(f"summary{i}", "") or "" for i in range(1, 9)]
+          data = {"titles": titles, "images": images, "summaries": summaries}
           # брандиране — подава се по желание от Make
           brand = {
               "logo": "NV_LOGO_URL",
@@ -89,6 +95,7 @@ jobs:
               "panel_bg": "NV_LOGO_PANEL_BG",
               "ad_scene": "NV_AD_SCENE",
               "voice": "NV_VOICE",
+              "sum_voice": "NV_SUM_VOICE",
           }
           for key, env_name in brand.items():
               if key in src and src[key] is not None:
