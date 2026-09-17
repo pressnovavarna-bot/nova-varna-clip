@@ -79,6 +79,17 @@ CARD_FG = (15, 18, 24, 255)
 CARD_FONT_SIZE = 46
 CARD_LINE_GAP = 12
 
+# обобщение под заглавието (само когато новината носи „summary")
+SUM_GAP = 12                   # разстояние между заглавието и обобщението
+SUM_FONT_SIZE = 34
+SUM_LINE_GAP = 8
+SUM_MIN_FONT = 24
+SUM_MAX_LINES = 9
+SUM_PAD_Y = 22
+SUM_READ_CPS = float(os.environ.get("NV_SUM_READ_CPS", "15"))  # знака в секунда
+SUM_READ_PAD = 1.6             # време за поглед към снимката
+SUM_VOICE = os.environ.get("NV_SUM_VOICE", "0") == "1"  # гласът чете ли обобщението
+
 def _rgba(env_name, default):
     raw = os.environ.get(env_name, "")
     try:
@@ -91,6 +102,8 @@ def _rgba(env_name, default):
 
 
 LOGO_PANEL_BG = _rgba("NV_LOGO_PANEL_BG", (43, 124, 192, 232))
+SUM_BG = _rgba("NV_SUM_BG", (255, 255, 255, 214))
+SUM_FG = _rgba("NV_SUM_FG", (26, 30, 38, 255))
 LOGO_PANEL_PAD = 18
 LOGO_IN_PANEL_W = 700
 PANEL_GAP = 14                 # разстояние между логото и заглавието
@@ -125,6 +138,14 @@ FONT_BOLD_CANDIDATES = [
     "/usr/share/fonts/truetype/google-fonts/Roboto-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+]
+
+FONT_REGULAR_CANDIDATES = [
+    "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Regular.ttf",
+    "/usr/share/fonts/truetype/roboto/hinted/Roboto-Regular.ttf",
+    "/usr/share/fonts/truetype/google-fonts/Roboto-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 ]
 
 WORK = Path(os.environ.get("NV_WORK", "work"))
@@ -176,6 +197,18 @@ def pick_font() -> str:
     if hits.returncode == 0 and hits.stdout.strip():
         return hits.stdout.strip()
     raise SystemExit("не намерих подходящ шрифт")
+
+
+def pick_font_regular() -> str:
+    for p in FONT_REGULAR_CANDIDATES:
+        if Path(p).exists():
+            return p
+    hits = subprocess.run(
+        ["fc-match", "-f", "%{file}", "sans"], capture_output=True, text=True
+    )
+    if hits.returncode == 0 and hits.stdout.strip():
+        return hits.stdout.strip()
+    return pick_font()
 
 
 def probe_duration(path: Path) -> float:
@@ -245,6 +278,40 @@ def make_title_card(text: str, font_path: str, dest: Path) -> Path:
         y += lh + CARD_LINE_GAP
     im.save(dest)
     log(f"заглавие: {len(lines)} реда, {size}px -> {dest}")
+    return dest
+
+
+def make_summary_card(text: str, font_path: str, dest: Path) -> Path:
+    """Бяло полупрозрачно поле с кратко обобщение, под заглавието."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    size = SUM_FONT_SIZE
+    inner = CARD_W - 2 * CARD_PAD_X
+    probe = Image.new("RGBA", (10, 10))
+    d0 = ImageDraw.Draw(probe)
+    while size > SUM_MIN_FONT:
+        font = ImageFont.truetype(font_path, size)
+        lines = _wrap(d0, text, font, inner)
+        if len(lines) <= SUM_MAX_LINES:
+            break
+        size -= 2
+    font = ImageFont.truetype(font_path, size)
+    lines = _wrap(d0, text, font, inner)[:SUM_MAX_LINES + 2]
+
+    asc, desc = font.getmetrics()
+    lh = asc + desc
+    height = 2 * SUM_PAD_Y + len(lines) * lh + (len(lines) - 1) * SUM_LINE_GAP
+
+    im = Image.new("RGBA", (CARD_W, height), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle([0, 0, CARD_W - 1, height - 1], radius=CARD_RADIUS,
+                        fill=SUM_BG)
+    y = SUM_PAD_Y
+    for ln in lines:
+        d.text((CARD_PAD_X, y), ln, font=font, fill=SUM_FG)
+        y += lh + SUM_LINE_GAP
+    im.save(dest)
+    log(f"обобщение: {len(lines)} реда, {size}px -> {dest}")
     return dest
 
 
@@ -462,10 +529,16 @@ def png_size(path: Path):
 
 
 def render_news_scene(photo: Path, panel: Path, card: Path, banner,
-                      duration: float, dest: Path):
+                      duration: float, dest: Path, summary=None):
     card_h = png_size(card)[1]
     panel_h = png_size(panel)[1]
-    card_y = CARD_BOTTOM - card_h
+    sum_h = png_size(summary)[1] if summary else 0
+    if summary:
+        sum_y = CARD_BOTTOM - sum_h
+        card_y = sum_y - SUM_GAP - card_h
+    else:
+        sum_y = 0
+        card_y = CARD_BOTTOM - card_h
     panel_y = card_y - PANEL_GAP - panel_h
     wide = int(W * (1 + PAN_SPAN)) // 2 * 2
     span = wide - W
@@ -473,11 +546,17 @@ def render_news_scene(photo: Path, panel: Path, card: Path, banner,
     p = f"min(t/{duration:.3f},1)"
     pan = f"'{span}*({p}*{p}*(3-2*{p}))'"
 
-    inputs = []
-    for src in (photo, panel, card):
-        inputs += ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(src)]
+    sources = [photo, panel, card]
+    idx_sum = idx_ban = None
+    if summary:
+        idx_sum = len(sources)
+        sources.append(summary)
     if banner:
-        inputs += ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(banner)]
+        idx_ban = len(sources)
+        sources.append(banner)
+    inputs = []
+    for src in sources:
+        inputs += ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(src)]
 
     fc = [
         f"[0:v]scale={wide}:{H}:force_original_aspect_ratio=increase,"
@@ -491,13 +570,18 @@ def render_news_scene(photo: Path, panel: Path, card: Path, banner,
     fc.append(f"[bg][card]overlay=x={CARD_X}:y={card_y}[v1]")
     fc.append(f"[v1][panel]overlay=x={CARD_X}:y={panel_y}[v2]")
     last = "v2"
-    if banner:
-        fc.append(f"[3:v]scale={BANNER_W}:-1,setsar=1[ban]")
+    if idx_sum is not None:
+        fc.append(f"[{idx_sum}:v]setsar=1,format=rgba,"
+                  f"fade=t=in:st=0.25:d=0.7:alpha=1[sum]")
+        fc.append(f"[{last}][sum]overlay=x={CARD_X}:y={sum_y}[vs]")
+        last = "vs"
+    if idx_ban is not None:
+        fc.append(f"[{idx_ban}:v]scale={BANNER_W}:-1,setsar=1[ban]")
         fc.append(
             f"[{last}][ban]overlay=x={BANNER_X}:"
-            f"y={rise_expr(BANNER_Y, BANNER_AD_START, BANNER_RISE)}[v3]"
+            f"y={rise_expr(BANNER_Y, BANNER_AD_START, BANNER_RISE)}[vb]"
         )
-        last = "v3"
+        last = "vb"
     fc.append(f"[{last}]format=yuv420p[out]")
 
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs,
@@ -599,33 +683,40 @@ def read_input():
     for i, a in enumerate(sys.argv):
         if a == "--json" and i + 1 < len(sys.argv):
             return json.loads(Path(sys.argv[i + 1]).read_text(encoding="utf-8"))
-    titles, images = [], []
+    titles, images, summaries = [], [], []
     for n in range(1, 11):
         t = os.environ.get(f"NV_TITLE{n}", "")
         u = os.environ.get(f"NV_IMAGE{n}", "")
         if t and u:
             titles.append(t)
             images.append(u)
-    return {"titles": titles, "images": images}
+            summaries.append(os.environ.get(f"NV_SUMMARY{n}", ""))
+    return {"titles": titles, "images": images, "summaries": summaries}
 
 
 def main():
     data = read_input()
-    pairs = [
-        (clean_title(t), u)
-        for t, u in zip(data.get("titles", []), data.get("images", []))
+    raw_titles = data.get("titles", [])
+    raw_images = data.get("images", [])
+    raw_sums = list(data.get("summaries", []))
+    raw_sums += [""] * (len(raw_titles) - len(raw_sums))
+    triples = [
+        (clean_title(t), u, clean_title(s))
+        for t, u, s in zip(raw_titles, raw_images, raw_sums)
         if clean_title(t) and u
     ]
-    if not pairs:
+    if not triples:
         raise SystemExit("няма нито една новина с заглавие и снимка")
-    titles = [t for t, _ in pairs]
-    images = [u for _, u in pairs]
-    log(f"новини: {len(titles)}")
+    titles = [t for t, _, _ in triples]
+    images = [u for _, u, _ in triples]
+    summaries = [s for _, _, s in triples]
+    log(f"новини: {len(titles)}, с обобщение: {sum(1 for s in summaries if s)}")
 
     WORK.mkdir(parents=True, exist_ok=True)
     OUT.mkdir(parents=True, exist_ok=True)
     font = pick_font()
-    log(f"шрифт: {font}")
+    font_reg = pick_font_regular()
+    log(f"шрифт: {font} / {font_reg}")
 
     logo = fetch(LOGO_URL, WORK / "logo.png")
     banner_ad = fetch(BANNER_AD_URL, WORK / "banner_ad.png") if BANNER_AD_URL else None
@@ -641,14 +732,29 @@ def main():
         for i, t in enumerate(titles)
     ]
 
-    speeches = [synth(t, WORK / f"voice{i + 1}.mp3") for i, t in enumerate(titles)]
+    sum_cards = [
+        make_summary_card(s, font_reg, WORK / f"sum{i + 1}.png") if s else None
+        for i, s in enumerate(summaries)
+    ]
+
+    spoken = [
+        f"{t}. {s}" if (s and SUM_VOICE) else t
+        for t, s in zip(titles, summaries)
+    ]
+    speeches = [synth(t, WORK / f"voice{i + 1}.mp3") for i, t in enumerate(spoken)]
     outro = synth(
         os.environ.get("NV_OUTRO_TEXT",
                        "Всички новини на Нова Варна прочетете тук:"),
         WORK / "voice_outro.mp3",
     )
 
-    durations = [LEAD_IN + sp.duration + TAIL for sp in speeches]
+    durations = []
+    for sp, s in zip(speeches, summaries):
+        dur = LEAD_IN + sp.duration + TAIL
+        if s and not SUM_VOICE:
+            # гласът чете само заглавието, но текстът трябва да се изчете
+            dur = max(dur, LEAD_IN + len(s) / SUM_READ_CPS + SUM_READ_PAD)
+        durations.append(dur)
     durations.append(OUTRO_DURATION)
 
     ad_index = AD_SCENE if (banner_ad and 0 <= AD_SCENE < len(photos)) else -1
@@ -656,7 +762,7 @@ def main():
     for i, (photo, card, dur) in enumerate(zip(photos, cards, durations)):
         scenes.append(render_news_scene(
             photo, panel, card, banner_ad if i == ad_index else None,
-            dur, WORK / f"scene{i + 1}.mp4"))
+            dur, WORK / f"scene{i + 1}.mp4", summary=sum_cards[i]))
     mosaic = make_outro_mosaic(photos, WORK / "mosaic.jpg")
     glow = make_glow(WORK / "glow.png")
     scenes.append(render_outro_scene(
