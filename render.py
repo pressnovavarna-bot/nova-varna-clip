@@ -89,6 +89,8 @@ SUM_PAD_Y = 22
 SUM_READ_CPS = float(os.environ.get("NV_SUM_READ_CPS", "15"))  # знака в секунда
 SUM_READ_PAD = 1.6             # време за поглед към снимката
 SUM_VOICE = os.environ.get("NV_SUM_VOICE", "0") == "1"  # гласът чете ли обобщението
+# обобщението като субтитри вместо като поле: чете се и се изписва дума по дума
+SUM_SUBS = os.environ.get("NV_SUM_SUBS", "0") == "1"
 
 def _rgba(env_name, default):
     raw = os.environ.get(env_name, "")
@@ -125,11 +127,11 @@ OUTRO_BG_BLUR = 16             # размиване на мозайката
 OUTRO_DIM_ALPHA = 0.62         # колко я потъмнява тъмносиньото
 
 SUBTITLES = os.environ.get("NV_SUBTITLES", "0") == "1"
-SUB_Y = 1520
-SUB_SIZE = 56
-SUB_MAX_WORDS = 4
+SUB_Y = int(os.environ.get("NV_SUB_Y", "1560"))
+SUB_SIZE = int(os.environ.get("NV_SUB_SIZE", "52"))
+SUB_MAX_WORDS = int(os.environ.get("NV_SUB_MAX_WORDS", "4"))
 SUB_FILL = "&H00FFFFFF"
-SUB_ACTIVE = "&H00BD7941"
+SUB_ACTIVE = os.environ.get("NV_SUB_ACTIVE", "&H00C07C2B")
 SUB_OUTLINE = "&H001F1208"
 
 FONT_BOLD_CANDIDATES = [
@@ -732,13 +734,15 @@ def main():
         for i, t in enumerate(titles)
     ]
 
-    sum_cards = [
+    # при субтитри обобщението не се рисува на поле — изписва се долу дума по дума
+    sum_cards = [None] * len(summaries) if SUM_SUBS else [
         make_summary_card(s, font_reg, WORK / f"sum{i + 1}.png") if s else None
         for i, s in enumerate(summaries)
     ]
 
+    read_summary = SUM_VOICE or SUM_SUBS
     spoken = [
-        f"{t}. {s}" if (s and SUM_VOICE) else t
+        f"{t}. {s}" if (s and read_summary) else t
         for t, s in zip(titles, summaries)
     ]
     speeches = [synth(t, WORK / f"voice{i + 1}.mp3") for i, t in enumerate(spoken)]
@@ -751,7 +755,7 @@ def main():
     durations = []
     for sp, s in zip(speeches, summaries):
         dur = LEAD_IN + sp.duration + TAIL
-        if s and not SUM_VOICE:
+        if s and not read_summary:
             # гласът чете само заглавието, но текстът трябва да се изчете
             dur = max(dur, LEAD_IN + len(s) / SUM_READ_CPS + SUM_READ_PAD)
         durations.append(dur)
@@ -778,9 +782,22 @@ def main():
 
     final = OUT / "clip.mp4"
     vfilter = "[0:v]null[v]"
-    if SUBTITLES:
+    blocks = []
+    if SUM_SUBS:
+        # само думите на обобщението — заглавието вече стои написано на бялото поле
+        for i, (sp, t, s) in enumerate(zip(speeches, titles, summaries)):
+            if not s:
+                continue
+            skip = len([w for w in t.split() if w])
+            words = [w for w in sp.words if w.text.strip()][skip:]
+            if words:
+                blocks.append((starts[i] + LEAD_IN,
+                               Speech(sp.path, sp.duration, words)))
+        log(f"субтитри за обобщението: {len(blocks)} сцени")
+    elif SUBTITLES:
         blocks = [(starts[i] + LEAD_IN, sp) for i, sp in enumerate(speeches)]
         blocks.append((starts[-1] + OUTRO_LEAD_IN, outro))
+    if blocks:
         ass = build_ass(blocks, font, WORK / "subs.ass")
         arg = str(ass).replace("\\", "/").replace(":", r"\:")
         vfilter = f"[0:v]subtitles='{arg}':fontsdir={Path(font).parent}[v]"
