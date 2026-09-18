@@ -63,7 +63,8 @@ BANNER_SITE_URL = os.environ.get(
 )
 
 # движение на снимката
-PAN_SPAN = 0.34                # с колко е по-широка снимката от кадъра
+# с колко е по-широка снимката от кадъра — толкова път изминава настрани
+PAN_SPAN = float(os.environ.get("NV_PAN_SPAN", "0.70"))
 PHOTO_BRIGHTNESS = -0.07
 PHOTO_SATURATION = 0.95
 
@@ -546,7 +547,9 @@ def render_news_scene(photo: Path, panel: Path, card: Path, banner,
     span = wide - W
     # плавно движение отдясно наляво: прозорецът се мести надясно
     p = f"min(t/{duration:.3f},1)"
-    pan = f"'{span}*({p}*{p}*(3-2*{p}))'"
+    # почти равномерно движение с леко омекотяване в началото и края
+    ease = f"(0.85*{p}+0.15*{p}*{p}*(3-2*{p}))"
+    pan = f"'{span}*{ease}'"
 
     sources = [photo, panel, card]
     idx_sum = idx_ban = None
