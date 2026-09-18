@@ -96,6 +96,7 @@ jobs:
               "ad_scene": "NV_AD_SCENE",
               "voice": "NV_VOICE",
               "sum_voice": "NV_SUM_VOICE",
+              "sum_subs": "NV_SUM_SUBS",
           }
           for key, env_name in brand.items():
               if key in src and src[key] is not None:
