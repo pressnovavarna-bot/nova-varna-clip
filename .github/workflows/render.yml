@@ -98,6 +98,8 @@ jobs:
               "sum_voice": "NV_SUM_VOICE",
               "sum_subs": "NV_SUM_SUBS",
               "pan_span": "NV_PAN_SPAN",
+              "pan_full": "NV_PAN_FULL",
+              "pan_max_speed": "NV_PAN_MAX_SPEED",
           }
           for key, env_name in brand.items():
               if key in src and src[key] is not None:
