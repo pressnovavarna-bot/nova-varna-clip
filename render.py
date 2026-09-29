@@ -65,6 +65,10 @@ BANNER_SITE_URL = os.environ.get(
 # движение на снимката
 # с колко е по-широка снимката от кадъра — толкова път изминава настрани
 PAN_SPAN = float(os.environ.get("NV_PAN_SPAN", "0.70"))
+# 1 = минава цялата снимка, от единия ѝ край до другия (PAN_SPAN не се ползва)
+PAN_FULL = os.environ.get("NV_PAN_FULL", "1") == "1"
+# таван на скоростта в пиксели в секунда, за да не се размаже при къса сцена
+PAN_MAX_SPEED = float(os.environ.get("NV_PAN_MAX_SPEED", "260"))
 PHOTO_BRIGHTNESS = -0.07
 PHOTO_SATURATION = 0.95
 
@@ -543,8 +547,26 @@ def render_news_scene(photo: Path, panel: Path, card: Path, banner,
         sum_y = 0
         card_y = CARD_BOTTOM - card_h
     panel_y = card_y - PANEL_GAP - panel_h
+
+    # колко широк да е кадърът, през който се плъзга прозорецът
     wide = int(W * (1 + PAN_SPAN)) // 2 * 2
-    span = wide - W
+    if PAN_FULL:
+        try:
+            iw, ih = png_size(photo)
+            full = int(round(iw * H / ih)) // 2 * 2      # снимката, смалена до височината
+        except Exception:
+            full = wide
+        if full > W + 8:
+            wide = full
+    span = max(wide - W, 0)
+    # ако сцената е къса, не позволяваме движението да стане размазано
+    top = int(PAN_MAX_SPEED * duration)
+    if span > top:
+        span = top
+        wide = (W + span) // 2 * 2
+    log(f"движение: кадър {wide}px, път {span}px за {duration:.1f}s "
+        f"({span / max(duration, 0.1):.0f} px/s)")
+
     # плавно движение отдясно наляво: прозорецът се мести надясно
     p = f"min(t/{duration:.3f},1)"
     # почти равномерно движение с леко омекотяване в началото и края
