@@ -111,13 +111,46 @@ jobs:
           echo "--- input.json:"
           cat input.json
 
-      - name: ffmpeg и шрифтове
+      # Готов ffmpeg вместо apt — секунди вместо минути.
+      # Файлът се пази между пусковете, така че обикновено дори не се сваля.
+      - name: Запазен ffmpeg
+        id: ffcache
+        uses: actions/cache@v4
+        with:
+          path: ~/ffbin
+          key: ffmpeg-static-v1
+
+      - name: Свали ffmpeg, ако го няма запазен
+        if: steps.ffcache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          mkdir -p ~/ffbin
+          cd /tmp
+          curl -fsSL --retry 3 --retry-delay 2 -o ff.tar.xz \
+            https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+          tar -xf ff.tar.xz
+          cp ffmpeg-master-latest-linux64-gpl/bin/ffmpeg  ~/ffbin/
+          cp ffmpeg-master-latest-linux64-gpl/bin/ffprobe ~/ffbin/
+
+      - name: Включи ffmpeg
+        run: |
+          chmod +x ~/ffbin/ffmpeg ~/ffbin/ffprobe
+          echo "$HOME/ffbin" >> "$GITHUB_PATH"
+          ~/ffbin/ffmpeg -version | head -1
+          ~/ffbin/ffprobe -version | head -1
+          ~/ffbin/ffmpeg -hide_banner -filters | grep -q " subtitles " \
+            && echo "субтитрите се поддържат" || echo "ВНИМАНИЕ: няма филтър subtitles"
+
+      # Шрифтът Roboto е по желание. Ако Ubuntu се бави, спираме след 3 минути
+      # и render.py минава на DejaVu — клипът пак излиза.
+      - name: Шрифт Roboto
+        continue-on-error: true
+        timeout-minutes: 3
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-roboto fonts-dejavu-core >/dev/null
+          sudo apt-get install -y -qq fonts-roboto fonts-dejavu-core >/dev/null
           fc-cache -f >/dev/null
-          ffmpeg -version | head -1
-          ffprobe -version | head -1
+          fc-list | grep -ci roboto || true
 
       - name: Python пакети
         run: pip install --quiet --disable-pip-version-check "edge-tts>=7.0" "pillow>=10"
